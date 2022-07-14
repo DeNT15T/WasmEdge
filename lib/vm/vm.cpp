@@ -5,9 +5,6 @@
 #include "vm/async.h"
 
 #include "host/wasi/wasimodule.h"
-#ifdef WASMEDGE_BUILD_WASI_CRYPTO
-#include "host/wasi_crypto/module.h"
-#endif
 #include "plugin/plugin.h"
 
 namespace WasmEdge {
@@ -65,13 +62,28 @@ void VM::unsafeInitVM() {
       spdlog::debug("wasi_nn module not founded."sv);
     }
   }
+  if (Conf.hasHostRegistration(HostRegistration::WasiCrypto)) {
+    bool Founded = false;
+    if (const auto *Plugin = Plugin::Plugin::find("wasi_crypto"sv)) {
+      if (const auto *Module = Plugin->findModule("wasi_crypto"sv)) {
+        auto ProcMod = Module->create();
+        ExecutorEngine.registerModule(StoreRef, *ProcMod);
+        ImpObjs.emplace(HostRegistration::WasiCrypto, std::move(ProcMod));
+        Founded = true;
+      }
+    }
+    if (!Founded) {
+      spdlog::debug("wasi_crypto module not founded."sv);
+    }
+  }
   uint8_t Index = static_cast<uint8_t>(HostRegistration::Max);
   for (const auto &Plugin : Plugin::Plugin::plugins()) {
     if (Conf.isForbiddenPlugins(Plugin.name())) {
       continue;
     }
     // skip WasmEdge_Process and wasi_nn
-    if (Plugin.name() == "wasmedge_process"sv || Plugin.name() == "wasi_nn"sv) {
+    if (Plugin.name() == "wasmedge_process"sv || Plugin.name() == "wasi_nn"sv ||
+        Plugin.name() == "wasi_crypto"sv) {
       continue;
     }
     for (const auto &Module : Plugin.modules()) {
@@ -81,14 +93,6 @@ void VM::unsafeInitVM() {
                       std::move(ModObj));
     }
   }
-#ifdef WASMEDGE_BUILD_WASI_CRYPTO
-  if (Conf.hasHostRegistration(HostRegistration::WasiCrypto)) {
-    std::unique_ptr<Runtime::Instance::ModuleInstance> WasiCryptoMod =
-        std::make_unique<Host::WasiCryptoModule>();
-    ExecutorEngine.registerModule(StoreRef, *WasiCryptoMod.get());
-    ImpObjs.insert({HostRegistration::WasiCrypto, std::move(WasiCryptoMod)});
-  }
-#endif
 }
 
 Expect<void> VM::unsafeRegisterModule(std::string_view Name,
